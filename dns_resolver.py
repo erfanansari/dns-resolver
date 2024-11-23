@@ -3,11 +3,6 @@ import struct
 import threading
 
 class DNSResolver:
-    """
-    A simple DNS resolver that converts domain names to IP addresses.
-    Can handle multiple domain lookups simultaneously using threads.
-    """
-
     def __init__(self):
         # Allow up to 3 simultaneous DNS lookups
         self.semaphore = threading.Semaphore(3)
@@ -17,10 +12,6 @@ class DNSResolver:
         self.lock = threading.Lock()
 
     def build_dns_query(self, domain):
-        """
-        Creates a DNS query packet for the given domain.
-        Example: build_dns_query("google.com") creates a binary packet.
-        """
         # 1. Create DNS header (12 bytes total)
         header = b''
         header += struct.pack('!H', 1234)    # Transaction ID
@@ -45,10 +36,6 @@ class DNSResolver:
         return header + question
 
     def parse_dns_response(self, response):
-        """
-        Extracts the IP address from DNS response.
-        Returns IP address as string (e.g., "192.168.1.1") or None if not found.
-        """
         # Skip first 12 bytes (DNS header)
         position = 12
 
@@ -80,10 +67,6 @@ class DNSResolver:
         return None
 
     def resolve_domain(self, domain):
-        """
-        Resolves a single domain name to IP address.
-        Uses Cloudflare's DNS server (1.1.1.1).
-        """
         # Wait for available thread slot
         self.semaphore.acquire()
         try:
@@ -116,10 +99,6 @@ class DNSResolver:
             self.semaphore.release()
 
 def main():
-    """
-    Main function that handles user input and displays results.
-    Resolves three domains simultaneously.
-    """
     # Create resolver
     resolver = DNSResolver()
     threads = []

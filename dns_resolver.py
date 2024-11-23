@@ -3,69 +3,106 @@ import struct
 import threading
 
 class DNSResolver:
-    def __init__(self, max_threads=3):
-        self.semaphore = threading.Semaphore(max_threads)
+    """
+    A simple DNS resolver that converts domain names to IP addresses.
+    Can handle multiple domain lookups simultaneously using threads.
+    """
+
+    def __init__(self):
+        # Allow up to 3 simultaneous DNS lookups
+        self.semaphore = threading.Semaphore(3)
+        # Store results for each domain
         self.results = {}
+        # Lock for thread-safe writing to results
         self.lock = threading.Lock()
 
     def build_dns_query(self, domain):
-        """Build a DNS query packet."""
-        transaction_id = struct.pack('!H', 1234)
-        flags = struct.pack('!H', 0x0100)
-        qdcount = struct.pack('!H', 1)
-        ancount = struct.pack('!H', 0)
-        nscount = struct.pack('!H', 0)
-        arcount = struct.pack('!H', 0)
+        """
+        Creates a DNS query packet for the given domain.
+        Example: build_dns_query("google.com") creates a binary packet.
+        """
+        # 1. Create DNS header (12 bytes total)
+        header = b''
+        header += struct.pack('!H', 1234)    # Transaction ID
+        header += struct.pack('!H', 0x0100)  # Flags (standard query)
+        header += struct.pack('!H', 1)       # Questions count
+        header += struct.pack('!H', 0)       # Answer count
+        header += struct.pack('!H', 0)       # Authority count
+        header += struct.pack('!H', 0)       # Additional count
 
+        # 2. Create DNS question
         question = b''
+        # Convert domain (e.g., "google.com" to "\x06google\x03com\x00")
         for part in domain.split('.'):
-            length = len(part)
-            question += struct.pack('!B', length) + part.encode()
-        question += b'\x00'
+            question += struct.pack('!B', len(part)) + part.encode()
+        question += b'\x00'  # End of domain name
 
-        qtype = struct.pack('!H', 1)
-        qclass = struct.pack('!H', 1)
+        # 3. Add query type (A record) and class (IN)
+        question += struct.pack('!H', 1)  # Type: A record (IPv4)
+        question += struct.pack('!H', 1)  # Class: IN (Internet)
 
-        return transaction_id + flags + qdcount + ancount + nscount + arcount + question + qtype + qclass
+        # 4. Combine all parts
+        return header + question
 
     def parse_dns_response(self, response):
-        """Parse the DNS response to extract the IP address."""
-        pos = 12
+        """
+        Extracts the IP address from DNS response.
+        Returns IP address as string (e.g., "192.168.1.1") or None if not found.
+        """
+        # Skip first 12 bytes (DNS header)
+        position = 12
 
-        while pos < len(response) and response[pos] != 0:
-            if response[pos] >= 192:
-                pos += 2
+        # Skip the question section
+        while position < len(response):
+            # Check for DNS compression
+            if response[position] >= 192:  # Compression marker
+                position += 2
                 break
-            pos += response[pos] + 1
+            # Regular domain name part
+            if response[position] == 0:    # End of domain name
+                position += 1
+                break
+            position += response[position] + 1
 
-        pos += 1 + 4
-        pos += 10
+        # Skip query type and class
+        position += 4
 
-        rdlength = struct.unpack('!H', response[pos:pos+2])[0]
-        pos += 2
+        # Skip to the IP address location
+        position += 10
 
-        if rdlength == 4 and pos + 4 <= len(response):
-            ip = '.'.join(str(b) for b in response[pos:pos+4])
-            return ip
+        # Get length of IP address data
+        rdlength = struct.unpack('!H', response[position:position+2])[0]
+        position += 2
+
+        # Extract IP address if it's IPv4 (4 bytes)
+        if rdlength == 4 and position + 4 <= len(response):
+            return '.'.join(str(b) for b in response[position:position+4])
         return None
 
     def resolve_domain(self, domain):
-        """Resolve a domain name to IP address using a specified DNS server."""
+        """
+        Resolves a single domain name to IP address.
+        Uses Cloudflare's DNS server (1.1.1.1).
+        """
+        # Wait for available thread slot
         self.semaphore.acquire()
         try:
+            # Create UDP socket for DNS query
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(10)
+            sock.settimeout(10)  # Wait max 10 seconds for response
 
             try:
+                # Send query to Cloudflare's DNS (1.1.1.1)
                 query = self.build_dns_query(domain)
                 sock.sendto(query, ("1.1.1.1", 53))
 
+                # Get response
                 response, _ = sock.recvfrom(1024)
-
                 ip = self.parse_dns_response(response)
 
+                # Store result safely
                 with self.lock:
-                    self.results[domain] = ip if ip is not None else "Failed to parse response"
+                    self.results[domain] = ip if ip else "Failed to parse response"
 
             except socket.timeout:
                 with self.lock:
@@ -79,26 +116,32 @@ class DNSResolver:
             self.semaphore.release()
 
 def main():
-    """Main function to resolve multiple domains using semaphore."""
+    """
+    Main function that handles user input and displays results.
+    Resolves three domains simultaneously.
+    """
+    # Create resolver
     resolver = DNSResolver()
     threads = []
 
-    # Get domain inputs
-    domains = [input(f"Enter domain {i+1}: ").strip() for i in range(3)]
+    # Get three domain names from user
+    print("Enter three domain names to resolve:")
+    domains = [input(f"Domain {i+1}: ").strip() for i in range(3)]
 
-    # Create and start threads for each domain
+    # Start a thread for each domain
     for domain in domains:
         thread = threading.Thread(target=resolver.resolve_domain, args=(domain,))
         threads.append(thread)
         thread.start()
 
-    # Wait for all threads to complete
+    # Wait for all lookups to complete
     for thread in threads:
         thread.join()
 
-    # Print results
+    # Show results
+    print("\nResults:")
     for domain in domains:
-        print(f"IP address of {domain}: {resolver.results.get(domain, 'Not resolved')}")
+        print(f"{domain} -> {resolver.results.get(domain, 'Not resolved')}")
 
 if __name__ == "__main__":
     main()

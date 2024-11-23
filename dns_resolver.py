@@ -125,8 +125,7 @@ def main():
     threads = []
 
     # Get three domain names from user
-    print("Enter three domain names to resolve:")
-    domains = [input(f"Domain {i+1}: ").strip() for i in range(3)]
+    domains = [input(f"Enter domain {i+1}: ").strip() for i in range(3)]
 
     # Start a thread for each domain
     for domain in domains:
@@ -139,9 +138,8 @@ def main():
         thread.join()
 
     # Show results
-    print("\nResults:")
     for domain in domains:
-        print(f"{domain} -> {resolver.results.get(domain, 'Not resolved')}")
+        print(f"IP address of {domain} {resolver.results.get(domain, 'Not resolved')}")
 
 if __name__ == "__main__":
     main()
